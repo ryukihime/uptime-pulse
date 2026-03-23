@@ -2,7 +2,7 @@
 
 ## 1. プロジェクト方針
 - **フェーズ**: MVP -> v1 -> v2 (段階的開発)
-- **監視内容**: HTTP GETによる死活監視、1/5/10分間隔、メール/Webhook通知
+- **監視内容**: HTTP GETによる死活監視、1/5/10分間隔、メール/Webhook/Slack通知 (v1〜)
 
 ## 2. 確定した技術構成
 「安定性と信頼性」を最優先し、以下の構成で進める。
@@ -28,7 +28,8 @@
 - **フロー**: 
   1. Upstashから1分ごとにAPIをキック
   2. Next.jsがDBを確認し、対象モニターを実行
-  3. 結果をDB保存し、異常があれば通知
+  3. 結果をDB保存
+  4. **前回と状態が変化した場合（UP→DOWN または DOWN→UP）、通知を送信**
 
 ## 4. ディレクトリ構成
 ```text
@@ -52,6 +53,7 @@ uptimepulse/
     - 同一メールアドレスでの複数プロバイダー連携を許容し、ユーザーの利便性を向上。
 - **Profile** (プロフィール):
     - `id`, `userId`, `displayName` (表示名), `image`, `role` (権限), `updatedAt`
+    - **role 定義**: `OWNER`, `ADMIN`, `MEMBER`, `VIEWER`
 
 ### 監視・状態管理 (設定と動的な状態を分離)
 - **Monitor** (監視設定):
@@ -67,12 +69,18 @@ uptimepulse/
     - `id`, `monitorId`, `statusCode`, `latencyMs`, `message` (エラー詳細など), `timestamp`
     - `@@index([monitorId, timestamp])`
 - **Incident** (障害イベント):
-    - `id`, `monitorId`, `status` (OPEN, RESOLVED)
-    - `startedAt`, `resolvedAt`, `cause` (原因メモ)
+    - `id`, `monitorId`, `status` (`INVESTIGATING`, `IDENTIFIED`, `FIXING`, `RESOLVED`)
+    - `startedAt`, `resolvedAt`, `title`, `description`
+- **IncidentUpdate** (タイムライン更新 - v1):
+    - `id`, `incidentId`, `message` (内容), `status` (更新時のステータス), `createdAt`
 
 ### 通知設定
 - **NotificationChannel** (通知先):
-    - `id`, `userId`, `name`, `type` (EMAIL, SITE), `config` (JSON形式の設定)
+    - `id`, `userId`, `name`, `type` (`EMAIL`, `WEBHOOK`, `SLACK`)
+    - `config` (JSON形式の設定)
+        - `EMAIL`: `{ "email": "string" }`
+        - `WEBHOOK`: `{ "url": "string", "method": "POST" }`
+        - `SLACK`: `{ "webhookUrl": "string" }` (v1〜)
 - **MonitorNotification** (紐付け):
     - `monitorId`, `channelId` (どの監視の結果をどこに送るかの設定)
 
@@ -111,8 +119,27 @@ uptimepulse/
     - **Maintenance (メンテ中)**: `blue-500` (青)
 - **UI コンポーネント**: Tailwind CSS v4 をベースに、miniZenn を踏襲した清潔感のあるモダンなデザインを目指す。
 
-## 9. 今後の展望 (Future Outlook / v2〜)
+## 9. 公開ステータスページ (v1)
 
+各プロジェクト固有のステータスページを提供。
+
+- **URL 設計**:
+  - `/status/[project-slug]` (認証なしで公開閲覧可能)
+- **表示内容**:
+  - **全体ステータス**: すべてのモニターが正常か、一部に障害があるかを表示。
+  - **個別モニター状況**: 直近 24 時間の稼働状況をを示すバーチャート。
+  - **直近のインシデント**: タイムライン形式で過去（または継続中）の障害情報を表示。
+
+## 10. ロール・権限マトリクス (v1)
+
+| ロール | モニター管理 | メンバー管理 | ステータスページ設定 | 閲覧のみ |
+| :--- | :---: | :---: | :---: | :---: |
+| OWNER | ◯ | ◯ | ◯ | ◯ |
+| ADMIN | ◯ | ◯ | ◯ | ◯ |
+| MEMBER | ◯ | × | × | ◯ |
+| VIEWER | × | × | × | ◯ |
+
+## 11. 今後の展望 (Future Outlook / v2〜)
 将来的な拡張性として以下の機能を検討している。
 
 ### 組織（マルチテナント）対応
@@ -120,6 +147,6 @@ uptimepulse/
 - **Organization** (組織/テナント):
     - `id`, `name` (組織名), `slug` (URL用一意識別子), `createdAt`
 - **Member** (メンバーシップ):
-    - `id`, `orgId`, `userId`, `role` (OWNER, ADMIN, VIEW)
+    - `id`, `orgId`, `userId`, `role` (OWNER, ADMIN, MEMBER, VIEWER)
 - **Monitor への展開**:
     - `userId` を `orgId` に拡張し、組織単位での監視管理を実現。
